@@ -18,7 +18,12 @@ import 'package:flutter/rendering.dart';
 /// * [ShimmerDirection.ttb] top to bottom direction
 /// * [ShimmerDirection.btt] bottom to top direction
 ///
-enum ShimmerDirection { ltr, rtl, ttb, btt }
+/// * [ShimmerDirection.blttr] bottomLeft to topRight direction
+/// * [ShimmerDirection.brttl] bottomRight to topLeft direction
+/// * [ShimmerDirection.tltbr] topLeft to bottomRight direction
+/// * [ShimmerDirection.trtbl] topRight to BottomLeft direction
+///
+enum ShimmerDirection { ltr, rtl, ttb, btt, blttr, brttl, tltbr, trtbl }
 
 ///
 /// A widget renders shimmer effect over [child] widget tree.
@@ -47,6 +52,8 @@ enum ShimmerDirection { ltr, rtl, ttb, btt }
 /// [enabled] controls if shimmer effect is active. When set to false the animation
 /// is paused
 ///
+/// [hideOnDisabled] hides the shimmer effect when [enabled] is `false`.
+///
 ///
 /// ## Pro tips:
 ///
@@ -59,19 +66,25 @@ enum ShimmerDirection { ltr, rtl, ttb, btt }
 class Shimmer extends StatefulWidget {
   final Widget child;
   final Duration period;
+  final Curve curve;
+  final Duration delay;
   final ShimmerDirection direction;
   final Gradient gradient;
   final int loop;
   final bool enabled;
+  final bool hideOnDisabled;
 
   const Shimmer({
     Key? key,
     required this.child,
     required this.gradient,
     this.direction = ShimmerDirection.ltr,
+    this.delay = Duration.zero,
     this.period = const Duration(milliseconds: 1500),
     this.loop = 0,
     this.enabled = true,
+    this.curve = Curves.linear,
+    this.hideOnDisabled = false,
   }) : super(key: key);
 
   ///
@@ -84,27 +97,25 @@ class Shimmer extends StatefulWidget {
     required this.child,
     required Color baseColor,
     required Color highlightColor,
+    this.delay = Duration.zero,
     this.period = const Duration(milliseconds: 1500),
     this.direction = ShimmerDirection.ltr,
     this.loop = 0,
     this.enabled = true,
+    this.curve = Curves.linear,
+    this.hideOnDisabled = false,
   })  : gradient = LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.centerRight,
-            colors: <Color>[
-              baseColor,
-              baseColor,
-              highlightColor,
-              baseColor,
-              baseColor
-            ],
-            stops: const <double>[
-              0.0,
-              0.35,
-              0.5,
-              0.65,
-              1.0
-            ]),
+          begin: Alignment.topLeft,
+          end: Alignment.centerRight,
+          colors: <Color>[
+            baseColor,
+            baseColor,
+            highlightColor,
+            baseColor,
+            baseColor
+          ],
+          stops: const <double>[0.0, 0.35, 0.5, 0.65, 1.0],
+        ),
         super(key: key);
 
   @override
@@ -119,32 +130,40 @@ class Shimmer extends StatefulWidget {
     properties.add(
         DiagnosticsProperty<Duration>('period', period, defaultValue: null));
     properties
+        .add(DiagnosticsProperty<Duration>('delay', delay, defaultValue: null));
+    properties
         .add(DiagnosticsProperty<bool>('enabled', enabled, defaultValue: null));
     properties.add(DiagnosticsProperty<int>('loop', loop, defaultValue: 0));
   }
 }
 
 class _ShimmerState extends State<Shimmer> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late final AnimationController _controller;
   int _count = 0;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.period)
-      ..addStatusListener((AnimationStatus status) {
-        if (status != AnimationStatus.completed) {
-          return;
-        }
-        _count++;
-        if (widget.loop <= 0) {
-          _controller.repeat();
-        } else if (_count < widget.loop) {
-          _controller.forward(from: 0.0);
-        }
-      });
+      ..addStatusListener(_controllerStateListener);
     if (widget.enabled) {
       _controller.forward();
+    }
+  }
+
+  Future<void> _controllerStateListener(AnimationStatus status) async {
+    if (status != AnimationStatus.completed) {
+      return;
+    }
+    _count++;
+    await Future<void>.delayed(widget.delay);
+    if (!mounted) {
+      return;
+    }
+    if (widget.loop <= 0) {
+      _controller.forward(from: 0.0);
+    } else if (_count < widget.loop) {
+      _controller.forward(from: 0.0);
     }
   }
 
@@ -161,19 +180,23 @@ class _ShimmerState extends State<Shimmer> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _controller,
+      animation: CurvedAnimation(parent: _controller, curve: widget.curve),
       child: widget.child,
-      builder: (BuildContext context, Widget? child) => _Shimmer(
-        child: child,
-        direction: widget.direction,
-        gradient: widget.gradient,
-        percent: _controller.value,
-      ),
+      builder: (BuildContext context, Widget? child) =>
+          widget.hideOnDisabled && !widget.enabled
+              ? child ?? Container()
+              : _Shimmer(
+                  child: child,
+                  direction: widget.direction,
+                  gradient: widget.gradient,
+                  percent: _controller.value,
+                ),
     );
   }
 
   @override
   void dispose() {
+    _controller.removeStatusListener(_controllerStateListener);
     _controller.dispose();
     super.dispose();
   }
@@ -251,22 +274,47 @@ class _ShimmerFilter extends RenderProxyBox {
       final double height = child!.size.height;
       Rect rect;
       double dx, dy;
-      if (_direction == ShimmerDirection.rtl) {
-        dx = _offset(width, -width, _percent);
-        dy = 0.0;
-        rect = Rect.fromLTWH(dx - width, dy, 3 * width, height);
-      } else if (_direction == ShimmerDirection.ttb) {
-        dx = 0.0;
-        dy = _offset(-height, height, _percent);
-        rect = Rect.fromLTWH(dx, dy - height, width, 3 * height);
-      } else if (_direction == ShimmerDirection.btt) {
-        dx = 0.0;
-        dy = _offset(height, -height, _percent);
-        rect = Rect.fromLTWH(dx, dy - height, width, 3 * height);
-      } else {
-        dx = _offset(-width, width, _percent);
-        dy = 0.0;
-        rect = Rect.fromLTWH(dx - width, dy, 3 * width, height);
+      switch (_direction) {
+        case ShimmerDirection.ltr:
+          dx = _offset(-width, width, _percent);
+          dy = 0.0;
+          rect = Rect.fromLTWH(dx - width, dy, 3 * width, height);
+          break;
+        case ShimmerDirection.rtl:
+          dx = _offset(width, -width, _percent);
+          dy = 0.0;
+          rect = Rect.fromLTWH(dx - width, dy, 3 * width, height);
+          break;
+        case ShimmerDirection.ttb:
+          dx = 0.0;
+          dy = _offset(-height, height, _percent);
+          rect = Rect.fromLTWH(dx, dy - height, width, 3 * height);
+          break;
+        case ShimmerDirection.btt:
+          dx = 0.0;
+          dy = _offset(height, -height, _percent);
+          rect = Rect.fromLTWH(dx, dy - height, width, 3 * height);
+          break;
+        case ShimmerDirection.blttr:
+          dx = _offset(width, -width, _percent * 2);
+          dy = _offset(height, -height, _percent * 2);
+          rect = Rect.fromLTWH(width, dy - height, -3 * width, 6 * height);
+          break;
+        case ShimmerDirection.brttl:
+          dx = _offset(width, -width, _percent * 1.5);
+          dy = _offset(height, -height, _percent * 1.5);
+          rect = Rect.fromLTWH(dx - width, dy - height, 4 * width, 6 * height);
+          break;
+        case ShimmerDirection.tltbr:
+          dx = _offset(-width, width, _percent * 1.5);
+          dy = _offset(-height, height, _percent * 1.5);
+          rect = Rect.fromLTWH(dx - width, dy - height, 2 * width, 4 * height);
+          break;
+        case ShimmerDirection.trtbl:
+          dx = _offset(width, -width, _percent * 1.5);
+          dy = _offset(-height, height, _percent * 1.5);
+          rect = Rect.fromLTWH(dx - width, height, 3 * width, -4 * height);
+          break;
       }
       layer ??= ShaderMaskLayer();
       layer!
