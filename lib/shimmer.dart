@@ -127,12 +127,12 @@ class Shimmer extends StatefulWidget {
     properties.add(DiagnosticsProperty<Gradient>('gradient', gradient,
         defaultValue: null));
     properties.add(EnumProperty<ShimmerDirection>('direction', direction));
-    properties.add(
-        DiagnosticsProperty<Duration>('period', period, defaultValue: null));
+    properties.add(DiagnosticsProperty<Duration>('period', period,
+        defaultValue: const Duration(milliseconds: 1500)));
+    properties.add(DiagnosticsProperty<Duration>('delay', delay,
+        defaultValue: Duration.zero));
     properties
-        .add(DiagnosticsProperty<Duration>('delay', delay, defaultValue: null));
-    properties
-        .add(DiagnosticsProperty<bool>('enabled', enabled, defaultValue: null));
+        .add(DiagnosticsProperty<bool>('enabled', enabled, defaultValue: true));
     properties.add(DiagnosticsProperty<int>('loop', loop, defaultValue: 0));
   }
 }
@@ -156,12 +156,18 @@ class _ShimmerState extends State<Shimmer> with SingleTickerProviderStateMixin {
       return;
     }
     _count++;
-    await Future<void>.delayed(widget.delay);
+    if (widget.delay > Duration.zero) {
+      await Future<void>.delayed(widget.delay);
+    }
     if (!mounted) {
       return;
     }
     if (widget.loop <= 0) {
-      _controller.forward(from: 0.0);
+      if (widget.delay == Duration.zero) {
+        _controller.repeat();
+      } else {
+        _controller.forward(from: 0.0);
+      }
     } else if (_count < widget.loop) {
       _controller.forward(from: 0.0);
     }
